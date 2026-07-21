@@ -29,6 +29,7 @@ jobs:
       - name: Install Dependencies
         run: npm ci
   scan:
+    needs: build
     runs-on: [self-hosted]
 
     steps: 
@@ -50,6 +51,7 @@ jobs:
             --failOnCVSS 7
 
   build-push:
+    needs: scan
     runs-on: [self-hosted]
 
     steps:
@@ -66,7 +68,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Push Docker image
-        run: docker push ranasinghedd/node-app:v2
+        run: docker push dishr/fronend:latest
   
 
 
