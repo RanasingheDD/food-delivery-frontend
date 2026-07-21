@@ -1,99 +1,297 @@
-# The name of your pipeline visible in GitHub's UI
 name: CI/CD Pipeline
 
-# 1. Define the Triggers (When should this run?)
 on:
   push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+    branches:
+      - main
 
-# 2. Define the Stages (What should it do?)
+  pull_request:
+    branches:
+      - main
+
+
 jobs:
-  # Continuous Integration Job
+
+# ==========================
+# 1. Install & Build Check
+# ==========================
+
   build:
-    runs-on: [self-hosted]
+    name: Build Application
+    runs-on: self-hosted
 
     steps:
-      # Step 1: Clone your repository code onto the runner
+
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # Step 2: Set up the programming language environment
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: 24
 
-      # Step 3: Install application dependencies
+
       - name: Install Dependencies
         run: |
-            npm ci
-            npm update      
-  scan:
+          npm ci
+          npm update
+
+
+      - name: Build React Application
+        run: |
+          npm run build
+
+
+
+# ==========================
+# 2. Code Quality + Security
+# ==========================
+
+  security-scan:
+
+    name: SonarQube and OWASP Scan
+
     needs: build
-    runs-on: [self-hosted]
 
-    steps: 
+    runs-on: self-hosted
 
-      - name: Static Code Analysis
-        uses: sonarsource/sonarqube-scan-action@master
-        env: 
-          SONAR_TOKEN: ${{secrets.SONAR_TOKEN}}
-          SONAR_HOST_URL: ${{secrets.SONAR_HOST_URL}}
-
-      - name: Run OWASP Dependency-Check
-        uses: dependency-check/Dependency-Check_Action@main
-        with:
-          project: "food-delivery"
-          path: "."
-          format: "HTML"
-          out: "reports"
-
-  build-push:
-    needs: scan
-    runs-on: [self-hosted]
 
     steps:
-      - name: Build Docker image
-        run: docker build -t dishr/fronend:latest .
 
-      - name: Trivy image scan
-        run: trivy image --exit-code 0 --severity CRITICAL dishr/fronend:latest
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      - name: Login to dockerhub
-        uses: docker/login-action@v4
+
+
+      # SonarQube Analysis
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@master
+
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+
+
+      # Clean previous OWASP reports
+
+      - name: Clean Dependency Reports
+        run: |
+          sudo rm -rf reports
+          mkdir reports
+
+
+
+      # OWASP Dependency Check
+
+      - name: OWASP Dependency Check
+
+        uses: dependency-check/Dependency-Check_Action@main
+
         with:
+          project: food-delivery
+          path: .
+          format: HTML
+          out: reports
+
+          args: >
+            --failOnCVSS 7
+
+
+
+      # Save OWASP report
+
+      - name: Upload OWASP Report
+
+        uses: actions/upload-artifact@v4
+
+        with:
+
+          name: dependency-check-report
+
+          path: reports
+
+
+
+# ==========================
+# 3. Docker Build & Security
+# ==========================
+
+
+  docker-build:
+
+
+    name: Docker Build and Push
+
+    needs: security-scan
+
+    runs-on: self-hosted
+
+
+    steps:
+
+
+      - name: Checkout Code
+
+        uses: actions/checkout@v4
+
+
+
+      - name: Docker Login
+
+        uses: docker/login-action@v4
+
+        with:
+
           username: ${{ secrets.DOCKERHUB_USERNAME }}
+
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Push Docker image
-        run: docker push dishr/fronend:latest
-  
-        
-      - name: Slack Notification - Failure
-        if: failure()
-        uses: slackapi/slack-github-action@v1.27.0
+
+
+      - name: Build Docker Image
+
+        run: |
+
+          docker build \
+          -t dishr/frontend:${{ github.sha }} .
+
+
+
+      # Container Vulnerability Scan
+
+      - name: Trivy Image Scan
+
+        run: |
+
+          trivy image \
+          --exit-code 1 \
+          --severity CRITICAL,HIGH \
+          dishr/frontend:${{ github.sha }}
+
+
+
+      - name: Push Docker Image
+
+        run: |
+
+          docker push dishr/frontend:${{ github.sha }}
+
+
+
+# ==========================
+# 4. Update Helm Chart
+# ==========================
+
+
+  update-helm:
+
+    name: Update Helm Repository
+
+    needs: docker-build
+
+    runs-on: self-hosted
+
+
+    steps:
+
+
+      - name: Checkout Helm Repository
+
+        uses: actions/checkout@v4
+
         with:
+
+          repository: RanasingheDD/food-delivery-Helm-Chart
+
+          token: ${{ secrets.GH_TOKEN }}
+
+          path: /
+
+
+      - name: Update Image Tag
+
+        working-directory: /
+
+        run: |
+
+          sed -i \
+          "s/tag:.*/tag: ${{ github.sha }}/" \
+          values.yaml
+
+
+
+      - name: Commit and Push Changes
+
+        working-directory: helm-repo
+
+        run: |
+
+          git config user.name "github-actions"
+
+          git config user.email "github-actions@github.com"
+
+
+          git add .
+
+
+          git commit \
+          -m "Update image tag to ${{ github.sha }}" || echo "No changes"
+
+
+          git push
+
+
+# ==========================
+# 5. Slack Failure Alert
+# ==========================
+
+
+  slack-notification:
+
+
+    name: Slack Notification
+
+
+    needs:
+
+      - build
+
+      - security-scan
+
+      - docker-build
+
+      - update-helm
+
+
+    if: failure()
+
+
+    runs-on: ubuntu-latest
+
+
+    steps:
+
+
+      - name: Send Slack Alert
+
+
+        uses: slackapi/slack-github-action@v1.27.0
+
+
+        with:
+
+
           payload: |
+
             {
-              "text": "❌ GitHub Actions Pipeline Failed\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref }}\nCommit: ${{ github.sha }}"
+              "text": "❌ CI/CD Pipeline Failed\n\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref }}\nCommit: ${{ github.sha }}"
             }
+
+
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}  
 
 
-
-  # Continuous Deployment Job
-  # deploy:
-  #   runs-on: ubuntu-latest
-  #   needs: build-and-test # Only runs if the test job passes successfully
-  #   if: github.ref == 'refs/heads/main' 
-
-  #   steps:
-  #     - name: Checkout Code
-  #       uses: actions/checkout@v4
-
-  #     - name: Deploy Application
-  #       # Replace this echo with actual cloud provider commands (e.g., AWS, Vercel, Docker)
-  #       run: echo "Deploying production assets..." 
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
