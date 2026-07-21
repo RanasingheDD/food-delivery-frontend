@@ -29,7 +29,7 @@ jobs:
       - name: Install Dependencies
         run: |
             npm ci
-            npm update
+            npm update      
   scan:
     needs: build
     runs-on: [self-hosted]
@@ -70,6 +70,17 @@ jobs:
       - name: Push Docker image
         run: docker push dishr/fronend:latest
   
+        
+      - name: Slack Notification - Failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.27.0
+        with:
+          payload: |
+            {
+              "text": "❌ GitHub Actions Pipeline Failed\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref }}\nCommit: ${{ github.sha }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}  
 
 
 
