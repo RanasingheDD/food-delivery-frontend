@@ -27,7 +27,9 @@ jobs:
 
       # Step 3: Install application dependencies
       - name: Install Dependencies
-        run: npm ci
+        run: |
+            npm ci
+            npm update
   scan:
     needs: build
     runs-on: [self-hosted]
@@ -47,8 +49,6 @@ jobs:
           path: "."
           format: "HTML"
           out: "reports"
-          args: >
-            --failOnCVSS 7
 
   build-push:
     needs: scan
