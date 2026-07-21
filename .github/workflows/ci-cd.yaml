@@ -213,8 +213,7 @@ jobs:
 
         run: |
 
-          sed -i "s/tag: v1/tag: ${{ github.sha }}/g" values.yaml
-
+          yq -i '.frontend.image.tag="${{ github.sha }}"' values.yaml
 
 
       - name: Commit and Push Changes
