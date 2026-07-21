@@ -204,24 +204,22 @@ jobs:
 
           token: ${{ secrets.GH_TOKEN }}
 
-          path: /
+          path: helm-chart
 
 
       - name: Update Image Tag
 
-        working-directory: /
+        working-directory: helm-chart
 
         run: |
 
-          sed -i \
-          "s/tag:.*/tag: ${{ github.sha }}/" \
-          values.yaml
+          sed -i "s/tag: v1/tag: ${{ github.sha }}/g" values.yaml
 
 
 
       - name: Commit and Push Changes
 
-        working-directory: helm-repo
+        working-directory: helm-chart
 
         run: |
 
@@ -230,7 +228,7 @@ jobs:
           git config user.email "github-actions@github.com"
 
 
-          git add .
+          git add values.yaml
 
 
           git commit \
