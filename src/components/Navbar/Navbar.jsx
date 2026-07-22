@@ -41,7 +41,7 @@ const Navbar = ({ setShowLogin }) => {
           onClick={() => setMenu("mobile-app")}
           className={menu === "mobile-app" ? "active" : ""}
         >
-          mobile-app-eka-na
+          mobile
         </a>
         <a
           href="#footer"
